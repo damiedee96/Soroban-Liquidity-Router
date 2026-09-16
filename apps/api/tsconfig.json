@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "noEmit": false
+  },
+  "references": [
+    { "path": "../../packages/types" },
+    { "path": "../../packages/database" },
+    { "path": "../../packages/utils" },
+    { "path": "../../packages/routing-engine" }
+  ],
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
