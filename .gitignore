@@ -1,0 +1,74 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+test-results/
+*.lcov
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env*.local
+.env.production
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Turbo
+.turbo/
+
+# Database
+*.db
+*.db-journal
+prisma/migrations/**/migration.sql
+
+# Docker
+docker-compose.override.yml
+
+# Rust/Cargo
+target/
+Cargo.lock
+**/*.rs.bk
+*.wasm
+
+# Stellar
+.soroban/
+
+# Secrets and keys
+*.pem
+*.key
+secrets/
+.secrets/
+
+# OS
+Thumbs.db
+.Spotlight-V100
+.Trashes
+
+# Temporary files
+tmp/
+temp/
+*.tmp

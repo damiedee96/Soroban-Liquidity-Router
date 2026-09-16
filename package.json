@@ -1,0 +1,43 @@
+{
+  "name": "soroban-liquidity-router",
+  "version": "0.1.0",
+  "description": "Programmable liquidity and payment-routing infrastructure for Stellar and Soroban",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:coverage": "turbo run test:coverage",
+    "test:e2e": "turbo run test:e2e",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,md,json}\"",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "migrate:dev": "cd packages/database && prisma migrate dev",
+    "migrate:deploy": "cd packages/database && prisma migrate deploy",
+    "db:seed": "cd packages/database && prisma db seed",
+    "db:studio": "cd packages/database && prisma studio",
+    "contracts:build": "cd packages/contracts && cargo build --target wasm32-unknown-unknown --release",
+    "contracts:test": "cd packages/contracts && cargo test",
+    "contracts:deploy": "cd packages/contracts && npm run deploy"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "prettier": "^3.2.4",
+    "turbo": "^1.12.4",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "packageManager": "npm@10.2.5"
+}

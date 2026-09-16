@@ -1,0 +1,811 @@
+// Soroban Liquidity Router Database Schema
+// PostgreSQL with Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ASSETS & ISSUERS
+// ============================================================================
+
+model Asset {
+  id        String   @id @default(uuid())
+  code      String
+  issuer    String // Address or "native"
+  type      AssetType
+  network   Network
+  status    EntityStatus @default(ACTIVE)
+  
+  // Asset characteristics
+  decimals                Int      @default(7)
+  authorizationRequired   Boolean  @default(false)
+  authorizationRevocable  Boolean  @default(false)
+  authorizationImmutable  Boolean  @default(false)
+  clawbackEnabled         Boolean  @default(false)
+  
+  // Metadata
+  name        String?
+  description String?
+  iconUrl     String?
+  
+  // Risk information
+  riskLevel   RiskLevel?
+  riskFactors String[]
+  
+  // Issuer information
+  issuerName              String?
+  issuerWebsite           String?
+  issuerVerified          Boolean @default(false)
+  issuerVerificationLevel VerificationLevel?
+  issuerRestrictions      String[]
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  verifiedAt  DateTime?
+  
+  // Relations
+  basePairs               AssetPair[]       @relation("BasePairs")
+  quotePairs              AssetPair[]       @relation("QuotePairs")
+  marketDataAsIn          MarketData[]      @relation("AssetIn")
+  marketDataAsOut         MarketData[]      @relation("AssetOut")
+  poolAssets              PoolAsset[]
+  allowlistEntries        AssetAllowlist[]
+  routeStepsIn            RouteStep[]       @relation("InputAsset")
+  routeStepsOut           RouteStep[]       @relation("OutputAsset")
+  
+  @@unique([code, issuer, network])
+  @@index([code])
+  @@index([issuer])
+  @@index([status])
+  @@index([network])
+  @@map("assets")
+}
+
+enum AssetType {
+  NATIVE
+  CREDIT_ALPHANUM4
+  CREDIT_ALPHANUM12
+  CONTRACT
+}
+
+enum Network {
+  MAINNET
+  TESTNET
+  FUTURENET
+}
+
+enum EntityStatus {
+  ACTIVE
+  INACTIVE
+  DEPRECATED
+  RESTRICTED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum VerificationLevel {
+  BASIC
+  ENHANCED
+  INSTITUTIONAL
+}
+
+model AssetPair {
+  id          String   @id @default(uuid())
+  baseAssetId String
+  quoteAssetId String
+  status      EntityStatus @default(ACTIVE)
+  
+  // Statistics
+  volume24h       Decimal? @db.Decimal(65, 30)
+  trades24h       Int?
+  lastPrice       Decimal? @db.Decimal(65, 30)
+  priceChange24h  Decimal? @db.Decimal(65, 30)
+  totalLiquidity  Decimal? @db.Decimal(65, 30)
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  baseAsset  Asset @relation("BasePairs", fields: [baseAssetId], references: [id], onDelete: Cascade)
+  quoteAsset Asset @relation("QuotePairs", fields: [quoteAssetId], references: [id], onDelete: Cascade)
+  
+  @@unique([baseAssetId, quoteAssetId])
+  @@index([status])
+  @@map("asset_pairs")
+}
+
+model AssetAllowlist {
+  id            String   @id @default(uuid())
+  assetId       String
+  applicationId String
+  addedBy       String
+  reason        String?
+  
+  createdAt DateTime  @default(now())
+  expiresAt DateTime?
+  
+  // Relations
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  
+  @@unique([assetId, applicationId])
+  @@index([applicationId])
+  @@map("asset_allowlist")
+}
+
+model IssuerAllowlist {
+  id            String   @id @default(uuid())
+  issuerAddress String
+  applicationId String
+  addedBy       String
+  reason        String?
+  trustLevel    TrustLevel
+  
+  createdAt DateTime  @default(now())
+  expiresAt DateTime?
+  
+  @@unique([issuerAddress, applicationId])
+  @@index([applicationId])
+  @@map("issuer_allowlist")
+}
+
+enum TrustLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+// ============================================================================
+// LIQUIDITY SOURCES
+// ============================================================================
+
+model LiquiditySource {
+  id          String   @id @default(uuid())
+  type        SourceType
+  name        String
+  description String?
+  status      EntityStatus @default(ACTIVE)
+  
+  // Configuration
+  endpoint    String?
+  contractId  String?
+  
+  // Fee structure
+  feeType       FeeType
+  feeValue      Decimal @db.Decimal(65, 30)
+  feeCurrency   String?
+  
+  // Reliability metrics
+  reliabilityScore    Int      @default(100) // 0-100
+  uptimePercentage    Decimal  @default(100) @db.Decimal(5, 2)
+  averageResponseTime Int      @default(0) // milliseconds
+  
+  // Statistics
+  totalVolume  Decimal? @db.Decimal(65, 30)
+  totalTrades  Int?     @default(0)
+  
+  // Health monitoring
+  lastHealthCheck DateTime  @default(now())
+  healthStatus    HealthStatus @default(HEALTHY)
+  healthMessage   String?
+  
+  // Timestamps
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastUsedAt  DateTime?
+  
+  // Relations
+  supportedAssets     SourceAsset[]
+  marketData          MarketData[]
+  liquidityPools      LiquidityPool[]
+  routeSteps          RouteStep[]
+  healthChecks        SourceHealthCheck[]
+  
+  @@index([type])
+  @@index([status])
+  @@index([healthStatus])
+  @@map("liquidity_sources")
+}
+
+enum SourceType {
+  STELLAR_DEX
+  LIQUIDITY_POOL
+  AMM
+  ANCHOR
+  BRIDGE
+  CUSTOM
+}
+
+enum FeeType {
+  FIXED
+  PERCENTAGE
+  TIERED
+}
+
+enum HealthStatus {
+  HEALTHY
+  DEGRADED
+  OFFLINE
+}
+
+model SourceAsset {
+  id       String @id @default(uuid())
+  sourceId String
+  assetId  String
+  
+  createdAt DateTime @default(now())
+  
+  // Relations
+  source LiquiditySource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  
+  @@unique([sourceId, assetId])
+  @@index([assetId])
+  @@map("source_assets")
+}
+
+model SourceHealthCheck {
+  id       String   @id @default(uuid())
+  sourceId String
+  timestamp DateTime @default(now())
+  status   HealthStatus
+  
+  responseTime        Int // milliseconds
+  connectivityOk      Boolean
+  dataFreshnessOk     Boolean
+  apiResponsive       Boolean
+  liquidityAvailable  Boolean
+  
+  errors String[]
+  
+  // Relations
+  source LiquiditySource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  
+  @@index([sourceId, timestamp])
+  @@map("source_health_checks")
+}
+
+// ============================================================================
+// MARKET DATA
+// ============================================================================
+
+model MarketData {
+  id          String   @id @default(uuid())
+  sourceId    String
+  assetInId   String
+  assetOutId  String
+  
+  // Pricing
+  price         Decimal @db.Decimal(65, 30)
+  inversePrice  Decimal @db.Decimal(65, 30)
+  
+  // Liquidity
+  liquidityDepth  Decimal @db.Decimal(65, 30)
+  reserveAssetIn  Decimal? @db.Decimal(65, 30)
+  reserveAssetOut Decimal? @db.Decimal(65, 30)
+  
+  // Spread and fees
+  spread          Decimal @db.Decimal(65, 30)
+  feePercentage   Decimal @db.Decimal(65, 30)
+  
+  // Price impact estimates
+  priceImpact100   Decimal @db.Decimal(65, 30)
+  priceImpact1k    Decimal @db.Decimal(65, 30)
+  priceImpact10k   Decimal @db.Decimal(65, 30)
+  
+  // Volume
+  volume24h  Decimal @db.Decimal(65, 30)
+  trades24h  Int
+  
+  // Data freshness
+  fetchedAt       DateTime @default(now())
+  expiresAt       DateTime
+  blockNumber     Int?
+  ledgerSequence  Int?
+  
+  // Relations
+  source    LiquiditySource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  assetIn   Asset          @relation("AssetIn", fields: [assetInId], references: [id], onDelete: Cascade)
+  assetOut  Asset          @relation("AssetOut", fields: [assetOutId], references: [id], onDelete: Cascade)
+  
+  @@index([sourceId, assetInId, assetOutId])
+  @@index([fetchedAt])
+  @@index([expiresAt])
+  @@map("market_data")
+}
+
+model LiquidityPool {
+  id       String   @id @default(uuid())
+  sourceId String
+  poolId   String // On-chain identifier
+  type     PoolType
+  
+  // Pool characteristics
+  feePercentage   Decimal @db.Decimal(65, 30)
+  totalLiquidity  Decimal @db.Decimal(65, 30)
+  totalShares     Decimal @db.Decimal(65, 30)
+  
+  // Performance
+  volume24h  Decimal @db.Decimal(65, 30)
+  fees24h    Decimal @db.Decimal(65, 30)
+  apy        Decimal? @db.Decimal(65, 30)
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  source LiquiditySource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  assets PoolAsset[]
+  
+  @@unique([sourceId, poolId])
+  @@index([type])
+  @@map("liquidity_pools")
+}
+
+enum PoolType {
+  CONSTANT_PRODUCT
+  STABLE_SWAP
+  WEIGHTED
+  CONCENTRATED
+}
+
+model PoolAsset {
+  id      String @id @default(uuid())
+  poolId  String
+  assetId String
+  reserve Decimal @db.Decimal(65, 30)
+  weight  Decimal? @db.Decimal(65, 30)
+  
+  // Relations
+  pool  LiquidityPool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  asset Asset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  
+  @@unique([poolId, assetId])
+  @@map("pool_assets")
+}
+
+// ============================================================================
+// ROUTES & QUOTES
+// ============================================================================
+
+model Route {
+  id             String   @id @default(uuid())
+  inputAssetId   String
+  outputAssetId  String
+  hopCount       Int
+  
+  // Performance estimates
+  estimatedDurationMs Int
+  estimatedGas        Decimal? @db.Decimal(65, 30)
+  
+  // Data quality
+  dataFreshness  DateTime
+  allDataFresh   Boolean
+  
+  // Timestamps
+  createdAt  DateTime @default(now())
+  validUntil DateTime
+  
+  // Relations
+  steps  RouteStep[]
+  quotes Quote[]
+  
+  @@index([inputAssetId, outputAssetId])
+  @@index([createdAt])
+  @@index([validUntil])
+  @@map("routes")
+}
+
+model RouteStep {
+  id             String @id @default(uuid())
+  routeId        String
+  stepNumber     Int
+  sourceId       String
+  
+  // Assets
+  inputAssetId   String
+  outputAssetId  String
+  
+  // Amounts
+  inputAmount    Decimal @db.Decimal(65, 30)
+  expectedOutput Decimal @db.Decimal(65, 30)
+  minimumOutput  Decimal @db.Decimal(65, 30)
+  
+  // Costs
+  fee            Decimal @db.Decimal(65, 30)
+  feePercentage  Decimal @db.Decimal(65, 30)
+  priceImpact    Decimal @db.Decimal(65, 30)
+  
+  // Execution details
+  price             Decimal @db.Decimal(65, 30)
+  marketDataId      String?
+  
+  // Data quality
+  dataFetchedAt    DateTime
+  dataExpiration   DateTime
+  
+  // Relations
+  route       Route           @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  source      LiquiditySource @relation(fields: [sourceId], references: [id])
+  inputAsset  Asset           @relation("InputAsset", fields: [inputAssetId], references: [id])
+  outputAsset Asset           @relation("OutputAsset", fields: [outputAssetId], references: [id])
+  
+  @@unique([routeId, stepNumber])
+  @@index([routeId])
+  @@map("route_steps")
+}
+
+model Quote {
+  id        String    @id @default(uuid())
+  routeId   String
+  quoteType QuoteType
+  
+  // Input/Output
+  inputAssetId   String
+  outputAssetId  String
+  inputAmount    Decimal @db.Decimal(65, 30)
+  expectedOutput Decimal @db.Decimal(65, 30)
+  minimumOutput  Decimal @db.Decimal(65, 30)
+  
+  // Pricing
+  effectiveRate Decimal @db.Decimal(65, 30)
+  inverseRate   Decimal @db.Decimal(65, 30)
+  
+  // Costs
+  totalFees       Decimal @db.Decimal(65, 30)
+  
+  // Slippage
+  estimatedSlippage Decimal @db.Decimal(65, 30)
+  maxSlippage       Decimal @db.Decimal(65, 30)
+  priceImpact       Decimal @db.Decimal(65, 30)
+  
+  // Execution assumptions
+  assumptions Json
+  risks       Json
+  
+  // Data quality
+  dataFreshness    DateTime
+  oldestDataPoint  DateTime
+  allDataFresh     Boolean
+  
+  // Validity
+  createdAt  DateTime @default(now())
+  validUntil DateTime
+  
+  // Relations
+  route      Route        @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  executions Execution[]
+  
+  @@index([routeId])
+  @@index([createdAt])
+  @@index([validUntil])
+  @@map("quotes")
+}
+
+enum QuoteType {
+  INDICATIVE
+  FIRM
+}
+
+// ============================================================================
+// POLICIES
+// ============================================================================
+
+model RoutingPolicy {
+  id            String  @id @default(uuid())
+  applicationId String
+  name          String
+  description   String?
+  active        Boolean @default(true)
+  
+  // Asset constraints (JSON for flexibility)
+  assetConstraints      Json
+  
+  // Execution constraints
+  executionConstraints  Json
+  
+  // Liquidity constraints
+  liquidityConstraints  Json
+  
+  // Timing constraints
+  timingConstraints     Json
+  
+  // Optimization preferences
+  optimizationPreferences Json
+  
+  // Timestamps
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  createdBy  String
+  lastUsedAt DateTime?
+  
+  // Relations
+  evaluations    PolicyEvaluation[]
+  changeHistory  PolicyChangeHistory[]
+  
+  @@index([applicationId])
+  @@index([active])
+  @@map("routing_policies")
+}
+
+model PolicyEvaluation {
+  id        String  @id @default(uuid())
+  policyId  String
+  executionId String?
+  compliant Boolean
+  
+  violations Json
+  warnings   Json
+  
+  evaluatedAt DateTime @default(now())
+  
+  // Relations
+  policy    RoutingPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  execution Execution?    @relation(fields: [executionId], references: [id], onDelete: SetNull)
+  
+  @@index([policyId])
+  @@index([executionId])
+  @@index([evaluatedAt])
+  @@map("policy_evaluations")
+}
+
+model PolicyChangeHistory {
+  id         String      @id @default(uuid())
+  policyId   String
+  changedBy  String
+  changeType ChangeType
+  
+  changesBefore Json?
+  changesAfter  Json?
+  reason        String?
+  
+  timestamp DateTime @default(now())
+  
+  // Relations
+  policy RoutingPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  
+  @@index([policyId])
+  @@index([timestamp])
+  @@map("policy_change_history")
+}
+
+enum ChangeType {
+  CREATED
+  UPDATED
+  DELETED
+  ACTIVATED
+  DEACTIVATED
+}
+
+// ============================================================================
+// EXECUTION
+// ============================================================================
+
+model Execution {
+  id                String          @id @default(uuid())
+  quoteId           String
+  idempotencyKey    String          @unique
+  status            ExecutionStatus @default(PENDING)
+  
+  // Request details
+  signerAddress String
+  maxSlippage   Decimal? @db.Decimal(65, 30)
+  deadline      DateTime?
+  webhookUrl    String?
+  
+  // Transaction details
+  transactionId    String?
+  transactionUrl   String?
+  blockNumber      Int?
+  ledgerSequence   Int?
+  
+  // Results
+  inputAmount    Decimal  @db.Decimal(65, 30)
+  expectedOutput Decimal  @db.Decimal(65, 30)
+  actualOutput   Decimal? @db.Decimal(65, 30)
+  slippage       Decimal? @db.Decimal(65, 30)
+  
+  // Costs
+  totalFees Decimal  @db.Decimal(65, 30)
+  gasCost   Decimal? @db.Decimal(65, 30)
+  
+  // Performance
+  executionTimeMs    Int?
+  confirmationTimeMs Int?
+  
+  // Failure information
+  failureReason         String?
+  failureClassification FailureType?
+  canRetry              Boolean      @default(false)
+  retryAttempts         Int          @default(0)
+  
+  // Fallback
+  fallbackAvailable Boolean  @default(false)
+  fallbackRouteId   String?
+  
+  // Metadata
+  metadata Json?
+  
+  // Timestamps
+  createdAt   DateTime  @default(now())
+  simulatedAt DateTime?
+  submittedAt DateTime?
+  confirmedAt DateTime?
+  failedAt    DateTime?
+  
+  // Relations
+  quote            Quote              @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  history          ExecutionHistory[]
+  policyEvaluations PolicyEvaluation[]
+  webhookDeliveries WebhookDelivery[]
+  
+  @@index([quoteId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([signerAddress])
+  @@map("executions")
+}
+
+enum ExecutionStatus {
+  PENDING
+  SIMULATING
+  SIMULATION_FAILED
+  READY
+  SUBMITTING
+  SUBMITTED
+  CONFIRMING
+  CONFIRMED
+  FAILED
+  TIMEOUT
+  CANCELLED
+  REVERTED
+}
+
+enum FailureType {
+  TRANSIENT
+  INVALID
+  ECONOMIC
+  AUTHORIZATION
+  PARTIAL
+  TIMEOUT
+  SIMULATION_FAILED
+  CONTRACT_ERROR
+  UNKNOWN
+}
+
+model ExecutionHistory {
+  id          String          @id @default(uuid())
+  executionId String
+  status      ExecutionStatus
+  details     Json?
+  error       String?
+  
+  timestamp DateTime @default(now())
+  
+  // Relations
+  execution Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  
+  @@index([executionId, timestamp])
+  @@map("execution_history")
+}
+
+model WebhookDelivery {
+  id          String   @id @default(uuid())
+  executionId String
+  webhookUrl  String
+  payload     Json
+  status      WebhookStatus @default(PENDING)
+  attempts    Int           @default(0)
+  
+  lastAttemptAt DateTime?
+  deliveredAt   DateTime?
+  error         String?
+  
+  createdAt DateTime @default(now())
+  
+  // Relations
+  execution Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  
+  @@index([executionId])
+  @@index([status])
+  @@map("webhook_deliveries")
+}
+
+enum WebhookStatus {
+  PENDING
+  DELIVERED
+  FAILED
+}
+
+// ============================================================================
+// ANALYTICS & AUDIT
+// ============================================================================
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  timestamp  DateTime @default(now())
+  actor      String
+  action     String
+  resource   String
+  resourceId String
+  
+  changes   Json?
+  metadata  Json?
+  ipAddress String?
+  userAgent String?
+  
+  @@index([actor])
+  @@index([resource, resourceId])
+  @@index([timestamp])
+  @@map("audit_logs")
+}
+
+model SystemMetric {
+  id        String   @id @default(uuid())
+  metric    String
+  value     Decimal  @db.Decimal(65, 30)
+  unit      String
+  tags      Json?
+  
+  timestamp DateTime @default(now())
+  
+  @@index([metric, timestamp])
+  @@map("system_metrics")
+}
+
+model Alert {
+  id          String        @id @default(uuid())
+  type        String
+  severity    AlertSeverity
+  title       String
+  message     String
+  metric      String?
+  threshold   Decimal?      @db.Decimal(65, 30)
+  currentValue Decimal?     @db.Decimal(65, 30)
+  
+  triggeredAt   DateTime  @default(now())
+  resolvedAt    DateTime?
+  acknowledged  Boolean   @default(false)
+  acknowledgedBy String?
+  acknowledgedAt DateTime?
+  
+  @@index([severity, resolvedAt])
+  @@index([triggeredAt])
+  @@map("alerts")
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+// ============================================================================
+// CONFIGURATION
+// ============================================================================
+
+model Configuration {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       Json
+  category    String
+  description String?
+  
+  updatedAt DateTime @updatedAt
+  updatedBy String
+  
+  @@index([category])
+  @@map("configurations")
+}
